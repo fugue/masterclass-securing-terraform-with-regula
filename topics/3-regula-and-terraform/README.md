@@ -41,10 +41,20 @@ allow {
 
 ## Try it Out
 
-Run the rule with Regula as follows:
+Run the rule with Regula as follows. The `-u` says _only run user provided rules_.
 
 ```bash
 regula run -u -i example.rego
 ```
 
-The `-u` says "only run user provided rules".
+You should see output like:
+
+```
+No problems found. Nothing can stop you now.
+```
+
+And try the table formatted output:
+
+```bash
+regula run -u -i example.rego -f table
+```
