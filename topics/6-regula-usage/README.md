@@ -36,3 +36,15 @@ Here's an example of using `curl` to download the latest Regula release from Git
             chmod +x regula
             sudo mv regula /usr/local/bin/regula
 ```
+
+## Unit Testing Rules
+
+Regula has built-in capabilities to help unit test Terraform and CloudFormation
+templates, including code generation.
+
+Check out:
+
+ * `regula test -h`
+ * `regula write-test-inputs -h`
+
+Also you can peruse our documentation on testing rules in [our documentation](https://regula.dev/development/testing-rules.html).
