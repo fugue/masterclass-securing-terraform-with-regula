@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+    - id: regula
+      name: Regula IaC Checks
+      entry: regula run -f table
+      language: system
+      files: .*(tf)
