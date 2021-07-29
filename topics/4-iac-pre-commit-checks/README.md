@@ -55,6 +55,8 @@ feedback when you run `git commit`. Regula will run against changed IaC template
 The [example.tf](./example.tf) file here has an insecure assume role policy
 commented out. Uncomment that and try to commit the change.
 
+![pre-commit-failure](./../../static/images/pre-commit-failure.png)
+
 ## Summary
 
 Pre-commit hooks with Regula are a great way to catch misconfigurations in IaC
