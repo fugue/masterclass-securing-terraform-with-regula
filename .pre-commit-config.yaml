@@ -1,8 +1,8 @@
-repos:
-  - repo: local
-    hooks:
-    - id: regula
-      name: Regula IaC Checks
-      entry: regula run -i .waivers.rego
-      language: system
-      files: .*(tf)
+repos: []
+#   - repo: local
+#     hooks:
+#     - id: regula
+#       name: Regula IaC Checks
+#       entry: regula run -i .waivers.rego
+#       language: system
+#       files: .*(tf)

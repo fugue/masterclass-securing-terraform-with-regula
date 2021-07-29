@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: RDS Database for the Superstore
+Parameters:
+  User:
+    Description: database user
+    Type: String
+    Default: admin
+  DatabaseName:
+    Description: database name
+    Type: String
+    Default: superstore
+  DatabasePort:
+    Description: TCP/IP port for the database
+    Type: Number
+    Default: 3306
+  MaxConnections:
+    Description: Maximum connections allowed to RDS instances
+    Type: Number
+    Default: 0
+  InstanceSize:
+    Description: The size of the RDS instance
+    Type: String
+    Default: db.t3.small
+  EnvType:
+    Type: String
+    Description: "The deployment environment: staging, prod, etc."
+  AZ1:
+    Type: String
+    Default: ""
+    Description: "If set will be used as the RDS instance AZ"
+  ClusterIdentifier:
+    Type: String
+    Description: "Database cluster identifier"
+  VPC:
+    Type: String
+    Description: "VPC that will contain the RDS cluster"
+  Subnet1:
+    Type: String
+    Description: "First subnet for the RDS cluster"
+  Subnet2:
+    Type: String
+    Description: "Second subnet for the RDS cluster"
+
+Conditions:
+  HasDbInstanceAZ1: !Not [!Equals [!Ref AZ1, '']]
+  HasMaxConnections: !Not [!Equals [!Ref MaxConnections, 0]]
+
+Resources:
+  AccessSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Superstore RDS Security Group for Internal Access
+      VpcId: !Ref VPC
+      Tags:
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Superstore RDS Security Group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: !Ref DatabasePort
+        ToPort: !Ref DatabasePort
+        SourceSecurityGroupId: !Ref AccessSecurityGroup
+      Tags:
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  SubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Superstore DBSubnetGroup"
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      Tags:
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  ClusterParameters:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: "Customized RDS Cluster Parameters"
+      Family: "aurora-mysql5.7"
+      Parameters:
+        server_audit_logging: 1
+        server_audit_events: "CONNECT,QUERY,QUERY_DCL,QUERY_DDL,QUERY_DML,TABLE"
+        binlog_format: MIXED
+
+  DatabaseParameters:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: "Customized RDS Parameters"
+      Family: "aurora-mysql5.7"
+      Parameters:
+        slow_query_log: "1"
+        log_queries_not_using_indexes: "0"
+        long_query_time: "1"
+        log_slow_admin_statements: "1"
+        max_connections: !If [HasMaxConnections, !Ref MaxConnections, !Ref 'AWS::NoValue']
+
+  ClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: rds.amazonaws.com
+          Action: sts:AssumeRole
+
+  ClusterPassword:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: "Secret containing the RDS cluster password"
+      GenerateSecretString:
+        SecretStringTemplate: "{\"username\": \"admin\"}"
+        GenerateStringKey: "password"
+        PasswordLength: 16
+        ExcludeCharacters: "\"@/\\"
+      Tags:
+        - Key: "Name"
+          Value: "Superstore RDS cluster password"
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  Cluster:
+    Type: AWS::RDS::DBCluster
+    DependsOn:
+      - ClusterErrorLog
+      - ClusterSlowQueryLog
+      - ClusterAuditLog
+    Properties:
+      AssociatedRoles:
+        - RoleArn: !GetAtt ClusterRole.Arn
+      DBClusterIdentifier: !Ref ClusterIdentifier
+      DatabaseName: !Ref DatabaseName
+      DBClusterParameterGroupName: !Ref ClusterParameters
+      DBSubnetGroupName: !Ref SubnetGroup
+      Engine: "aurora-mysql"
+      MasterUsername: !Ref User
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${ClusterPassword}::password}}'
+      Port: !Ref DatabasePort
+      EnableCloudwatchLogsExports:
+        - slowquery
+        - error
+        - audit
+      Tags:
+        - Key: "Name"
+          Value: "Superstore database cluster"
+        - Key: "Environment"
+          Value: !Ref EnvType
+      VpcSecurityGroupIds:
+        - Ref: SecurityGroup
+
+  Instance1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref Cluster
+      DBInstanceClass: !Ref InstanceSize
+      Engine: "aurora-mysql"
+      MultiAZ: false
+      PubliclyAccessible: true
+      AvailabilityZone: !If [ HasDbInstanceAZ1, !Ref AZ1, !Ref 'AWS::NoValue' ]
+      DBParameterGroupName: !Ref DatabaseParameters
+      Tags:
+        - Key: "Name"
+          Value: "Superstore database instance"
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  ClusterErrorLog:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/rds/cluster/${ClusterIdentifier}/error"
+      RetentionInDays: 60
+
+  ClusterSlowQueryLog:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/rds/cluster/${ClusterIdentifier}/slowquery"
+      RetentionInDays: 60
+
+  ClusterAuditLog:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/rds/cluster/${ClusterIdentifier}/audit"
+      RetentionInDays: 60
+
+Outputs:
+  ReadWriteEndpoint:
+    Description: "Address for Read/Write database access"
+    Value: !GetAtt Cluster.Endpoint.Address
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", ReadWriteEndpoint ] ]
+
+  ReadEndpoint:
+    Description: "Address for Read database access"
+    Value: !GetAtt Cluster.ReadEndpoint.Address
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", ReadEndpoint ] ]
+
+  AccessSecurityGroup:
+    Description: "Security group for database access"
+    Value: !Ref AccessSecurityGroup
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", AccessSecurityGroup ] ]

@@ -1,0 +1,185 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Superstore Compute
+Parameters:
+  EnvType:
+    Type: String
+    Description: "The deployment environment: staging, prod, etc."
+  InstanceType:
+    Description: "EC2 instance type"
+    Type: String
+    Default: t3.nano
+  VPC:
+    Type: String
+    Description: "VPC ID"
+  Subnet1:
+    Type: String
+    Description: "First subnet"
+  Subnet2:
+    Type: String
+    Description: "Second subnet"
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-0d8d212151031f51c
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair to support SSH access
+  DatabaseSecurityGroup:
+    Type: String
+    Description: "Security group to use for database access!"
+Resources:
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+  InstanceRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: InstanceRolePolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:List*
+          - s3:GetBucketLocation*
+          Resource:
+          - '*'
+      Roles:
+      - !Ref InstanceRole
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref InstanceRole
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub ${AWS::StackName}-launch-template
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - Ebs:
+              VolumeSize: 8
+              VolumeType: gp2
+              DeleteOnTermination: true
+              Encrypted: true
+            DeviceName: /dev/xvdh
+        CreditSpecification:
+          CpuCredits: unlimited
+        ImageId: !Ref ImageId
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile: 
+          Arn: !GetAtt InstanceProfile.Arn
+        KeyName: !Ref KeyPair
+        TagSpecifications:
+        - ResourceType: instance
+          Tags:
+          - Key: EnvType
+            Value: !Ref EnvType
+        - ResourceType: volume
+          Tags:
+          - Key: EnvType
+            Value: !Ref EnvType
+        Monitoring:
+          Enabled: True
+        SecurityGroupIds:
+          - !Ref WebServerSecurityGroup
+          - !Ref DatabaseSecurityGroup
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash -xe
+            yum update -y
+            yum install -y httpd24
+            echo "Welcome from the instance $(hostname -f)" > /var/www/html/index.html
+            service httpd start
+  ApplicationAsg:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: superstore-asg
+      MinSize: '1'
+      MaxSize: '5'
+      DesiredCapacity: '2'
+      HealthCheckGracePeriod: 300
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      Tags:
+        - Key: App
+          Value: Superstore
+          PropagateAtLaunch: true
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP access via port 80
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ELBWebServerSecurityGroup
+      VpcId: !Ref VPC
+  ELBWebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP access via port 80
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref VPC
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /
+      HealthCheckPort: traffic-port
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 30
+      HealthyThresholdCount: 2
+      Matcher:
+        HttpCode: "200"
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "10"
+      UnhealthyThresholdCount: 3
+      VpcId: !Ref VPC
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ELBWebServerSecurityGroup
+      Subnets:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      Tags:
+        - Key: StackId
+          Value: !Sub '${AWS::StackId}'
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP

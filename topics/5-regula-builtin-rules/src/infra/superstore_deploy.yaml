@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Superstore
+Parameters:
+  EnvType:
+    Type: String
+    Description: 'The deployment environment: staging, prod, etc.'
+  AZ1:
+    Description: First AZ
+    Type: String
+    Default: us-east-2a
+  AZ2:
+    Description: Second AZ
+    Type: String
+    Default: us-east-2b
+  NamePrefix:
+    Description: Name prefix for stacks
+    Type: String
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair to support SSH access
+Resources:
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-2.amazonaws.com/superstore-deploy-us-east-2-062463488233/c56e2f8b158d8553cfe721d83ea177c0.template
+      Parameters:
+        EnvType:
+          Ref: EnvType
+        AZ1:
+          Ref: AZ1
+        AZ2:
+          Ref: AZ2
+  ECRStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-2.amazonaws.com/superstore-deploy-us-east-2-062463488233/30bb00a0fe8720b37e70289db7622868.template
+      Parameters:
+        EnvType:
+          Ref: EnvType
+        RepoName:
+          Ref: NamePrefix
+  RDSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-2.amazonaws.com/superstore-deploy-us-east-2-062463488233/34cefcf2392b2c88d6604430a5503f6c.template
+      Parameters:
+        EnvType:
+          Ref: EnvType
+        AZ1:
+          Ref: AZ1
+        ClusterIdentifier:
+          Ref: NamePrefix
+        VPC:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.VPC
+        Subnet1:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.Subnet1
+        Subnet2:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.Subnet2
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.us-east-2.amazonaws.com/superstore-deploy-us-east-2-062463488233/edc06794d8f7cc2e9aaf8f7c62aa0651.template
+      Parameters:
+        EnvType:
+          Ref: EnvType
+        VPC:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.VPC
+        Subnet1:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.Subnet1
+        Subnet2:
+          Fn::GetAtt:
+          - VPCStack
+          - Outputs.Subnet2
+        KeyPair:
+          Ref: KeyPair
+        DatabaseSecurityGroup:
+          Fn::GetAtt:
+          - RDSStack
+          - Outputs.AccessSecurityGroup

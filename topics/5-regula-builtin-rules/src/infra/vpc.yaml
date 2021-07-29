@@ -1,0 +1,222 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Superstore Network
+Parameters:
+  EnvType:
+    Type: String
+    Description: "The deployment environment: staging, prod, etc."
+  AZ1:
+    Description: First AZ
+    Type: String
+  AZ2:
+    Description: Second AZ
+    Type: String
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: "Name"
+          Value: "Superstore"
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: "Name"
+        Value: IGW
+      - Key: "Environment"
+        Value: !Ref EnvType
+
+  IGWAttach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+        Ref: IGW
+      VpcId:
+        Ref: VPC
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: "10.0.0.0/24"
+      VpcId:
+        Ref: VPC
+      AvailabilityZone: !Ref AZ1
+      Tags:
+        - Key: "Kind"
+          Value: "Public"
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: "10.0.1.0/24"
+      VpcId:
+        Ref: VPC
+      AvailabilityZone: !Ref AZ2
+      Tags:
+        - Key: "Kind"
+          Value: "Public"
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  PublicRoute:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+      Tags:
+      - Key: "Name"
+        Value: "PublicRoute"
+      - Key: "Environment"
+        Value: !Ref EnvType
+
+  PublicSubnet1RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet1
+      RouteTableId:
+        Ref: PublicRoute
+
+  PublicSubnet2RouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId:
+        Ref: PublicSubnet2
+      RouteTableId:
+        Ref: PublicRoute
+
+  PublicRouteToInternet1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId:
+        Ref: PublicRoute
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId:
+        Ref: IGW
+
+  Nat1:
+    DependsOn: IGWAttach
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - NatEIP1
+        - AllocationId
+      SubnetId:
+        Ref: PublicSubnet1
+      Tags:
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  NatEIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  Nat2:
+    DependsOn: IGWAttach
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId:
+        Fn::GetAtt:
+        - NatEIP2
+        - AllocationId
+      SubnetId:
+        Ref: PublicSubnet2
+      Tags:
+        - Key: "Environment"
+          Value: !Ref EnvType
+
+  NatEIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      PolicyDocument: '{
+        "Version":"2012-10-17",
+        "Statement":[{
+          "Effect":"Allow",
+          "Principal": "*",
+          "Action":"*",
+          "Resource":"*"
+        }]
+      }'
+      RouteTableIds:
+        - !Ref PublicRoute
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcId: !Ref VPC
+
+  FlowLogRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: 'vpc-flow-logs.amazonaws.com'
+          Action: 'sts:AssumeRole'
+      Policies:
+      - PolicyName: 'flowlogs-policy'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - 'logs:CreateLogStream'
+            - 'logs:PutLogEvents'
+            - 'logs:DescribeLogGroups'
+            - 'logs:DescribeLogStreams'
+            Resource: !GetAtt 'FlowLogGroup.Arn'
+
+  FlowLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/aws/vpc/flow"
+      RetentionInDays: 30
+
+  # FlowLog:
+  #   Type: AWS::EC2::FlowLog
+  #   Properties:
+  #     DeliverLogsPermissionArn: !GetAtt 'FlowLogRole.Arn'
+  #     LogGroupName: !Ref FlowLogGroup
+  #     ResourceId: !Ref VPC
+  #     ResourceType: VPC
+  #     TrafficType: ALL
+
+Outputs:
+  VPC:
+    Description: "VPC"
+    Value: !Ref VPC
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", VPC ] ]
+
+  CIDR:
+    Description: "VPC CIDR Block"
+    Value: !GetAtt VPC.CidrBlock
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", CIDR ] ]
+
+  Subnet1:
+    Description: "First public subnet"
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", Subnet1 ] ]
+
+  Subnet2:
+    Description: "Second public subnet"
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", Subnet2 ] ]

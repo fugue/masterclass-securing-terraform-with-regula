@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECR Registries for the Superstore
+Parameters:
+  EnvType:
+    Type: String
+    Description: "The deployment environment: staging, prod, etc."
+  RepoName:
+    Default: superstore-service
+    Description: Superstore Service Image Repository
+    Type: String
+Resources:
+  SuperstoreServiceRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepoName
+      Tags:
+        - Key: "Environment"
+          Value: !Ref EnvType
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep Last 30 Images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 30
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+Outputs:
+  ServiceRepository:
+    Description: "Service Repository"
+    Value: !Ref SuperstoreServiceRepository
+    Export:
+      Name: !Join [ ":", [ !Ref "AWS::StackName", ServiceRepository ] ]

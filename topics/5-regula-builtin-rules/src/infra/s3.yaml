@@ -1,0 +1,127 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Superstore S3 Buckets
+Parameters:
+  EnvType:
+    Type: String
+    Description: "The deployment environment: staging, prod, etc."
+  NamePrefix:
+    Description: Name prefix for stacks
+    Type: String
+
+Resources:
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ["-", [!Ref NamePrefix, !Ref "AWS::Region", !Ref "AWS::AccountId"]]
+      # PublicAccessBlockConfiguration:
+      #   BlockPublicAcls: true
+      #   BlockPublicPolicy: true
+      #   IgnorePublicAcls: true
+      #   RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !Ref StorageKey
+              SSEAlgorithm: aws:kms
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvType
+
+  DeployBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Join ["-", [!Ref NamePrefix, "deploy", !Ref "AWS::Region", !Ref "AWS::AccountId"]]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !Ref StorageKey
+              SSEAlgorithm: aws:kms
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvType
+
+  StorageKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: Superstore Storage Key
+      Enabled: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: "superstore-storage-key-policy"
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: "Delegate GenerateDataKey permission to S3 for Inventory"
+            Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+            Resource: "*"
+
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref Bucket
+      PolicyDocument:
+        Statement:
+          - Sid: Require HTTPS
+            Action:
+              - "s3:*"
+            Effect: "Deny"
+            Principal:
+              AWS: "*"
+            Resource:
+              - !Sub "${Bucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
+
+  DeployBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DeployBucket
+      PolicyDocument:
+        Statement:
+          - Sid: Require HTTPS
+            Action:
+              - "s3:*"
+            Effect: "Deny"
+            Principal:
+              AWS: "*"
+            Resource:
+              - !Sub "${DeployBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
+
+  # AppBucket:
+  #   Type: AWS::S3::Bucket
+  #   Properties:
+  #     BucketName: !Join ["-", ["app-bucket", !Ref "AWS::Region", !Ref "AWS::AccountId"]]
+  #     Tags:
+  #       - Key: Environments
+  #         Value: !Ref EnvType
+
+Outputs:
+  StorageBucket:
+    Description: "Superstore storage"
+    Value: !Ref Bucket
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "Bucket"]]
+
+  DeployBucket:
+    Description: "Superstore storage for deploy artifacts"
+    Value: !Ref DeployBucket
+    Export:
+      Name: !Join [":", [!Ref "AWS::StackName", "DeployBucket"]]
