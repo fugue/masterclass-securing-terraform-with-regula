@@ -30,7 +30,7 @@ repos:
     hooks:
     - id: regula-
       name: Regula IaC Checks
-      entry: regula run -f table -i .waivers.rego
+      entry: regula run -f table
       language: system
       files: .*(tf)
 ```
