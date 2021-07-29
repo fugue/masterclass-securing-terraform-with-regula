@@ -16,7 +16,7 @@ We process an `input` JSON document using Rego. This is _arbitrary JSON_.
 
 > OPA generates policy decisions by evaluating the query input and against policies and data.
 
-```javascript
+```python
 package example
 
 allow = true {              # allow is true if...
@@ -24,19 +24,33 @@ allow = true {              # allow is true if...
 }
 ```
 
+## Example
+
+A simple "allow" policy for users in Rego.
+
+```python
+package example
+
+default allow = false       # by default, don't allow anyone
+
+allow = true {              # allow is true if...
+    input.role == "admin"   # the user is an admin
+}
+
+curtis = { "name": "Curtis", "role": "admin" }
+
+josh = { "name": "Josh", "role": "foo" }
+```
+
 ## Run the Example
 
 Try it out using the OPA REPL:
 
-```
+```bash
 opa run example.rego
 ```
 
-```
-OPA 0.28.0 (commit 3fbcd71, built at 2021-04-27T13:51:34Z)
-
-Run 'help' to see a list of commands and check for updates.
-
+```python
 > import data.example
 > example.allow with input as example.curtis
 true
