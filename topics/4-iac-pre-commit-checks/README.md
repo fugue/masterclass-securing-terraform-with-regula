@@ -28,9 +28,9 @@ Add a `.pre-commit-config.yaml` to your Git repository:
 repos:
   - repo: local
     hooks:
-    - id: regula-
+    - id: regula
       name: Regula IaC Checks
-      entry: regula run -f table
+      entry: regula run
       language: system
       files: .*(tf)
 ```
